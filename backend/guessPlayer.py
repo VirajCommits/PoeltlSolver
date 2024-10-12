@@ -14,6 +14,7 @@ def members():
 
 @app.route("/get-members", methods=['POST'])
 def get_member():
+    print("Called !")
     data = request.get_json()
     name = data.get("name", "")
     age = data.get("age", 0)
