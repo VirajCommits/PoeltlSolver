@@ -1,13 +1,25 @@
 {
-  "manifest_version": 3,
-  "name": "Your Extension Name",
-  "version": "1.0",
-  "description": "Description of your extension.",
-  "permissions": ["activeTab", "scripting"],
-  "content_scripts": [
+  "short_name": "React App",
+  "name": "Create React App Sample",
+  "icons": [
     {
-      "matches": ["https://*/*", "http://*/*"],
-      "js": ["contentScript.js"]
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
     }
-  ]
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
 }
