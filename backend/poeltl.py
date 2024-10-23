@@ -64,7 +64,10 @@ except requests.RequestException as e:
     print(f"Failed to fetch data: {e}")
     players = pd.DataFrame()
 else:
-    data = response.json()
+    # data = response.json()
+    response = requests.get(URL)
+    data = json.loads(response.text)
+
     players = pd.DataFrame(data)
     players['Age'] = players['BirthDate'].apply(calculate_age)
     players['Conference'] = players['Team'].map(
@@ -137,7 +140,7 @@ def guess():
         # print("difference", difference)
 
         if not player or not difference:
-            continue  # Skip invalid entries
+            continue  # Skip invalid entries\
 
         process_guess(player, difference, cumulative_filters)
 
@@ -150,6 +153,9 @@ def guess():
     # Prepare the filtered players to return
     filtered_players_json = filtered_players[['Name', 'TeamName', 'Conference', 'Division', 'Position', 'Height', 'Age', 'Jersey']].astype(
         object).where(pd.notnull(filtered_players), None).to_dict(orient='records')
+
+    # After processing guesses
+    print("Cumulative Filters:", cumulative_filters)
 
     return jsonify({'filtered_players': filtered_players_json}), 200
 
@@ -175,14 +181,14 @@ def process_guess(player, difference, filters):
     guessed_player = {
         'Conference': player.get('conference'),
         'Division': player.get('division'),
-        'TeamName': player.get('teamname'),
+        'TeamName': player.get('teamcode'),
         'Position': player.get('position'),
         'Height': player.get('height'),
         'Age': player.get('age'),
         'Jersey': int(player.get('number')) if player.get('number') else None
     }
 
-    print(" ------------- ", difference)
+    # print(" ------------- ", difference)
 
     # Process categorical attributes
     process_categorical_attribute('Conference', difference.get(
@@ -210,19 +216,17 @@ def process_categorical_attribute(attr_name, difference_value, guessed_value, fi
     if difference_value == 'equal':
         filters[attr_name].add(guessed_value)
     # elif difference_value == 'far' or difference_value == "higherFar":
-    elif difference_value == 'far':
+    else:
         exclude_key = f'Exclude_{attr_name}'
-        print(exclude_key)
         filters[exclude_key].add(guessed_value)
 
 
 def process_numerical_attribute(attr_name, difference_value, guessed_value, filters):
     if guessed_value is None:
         return
-    print(" ++++++++++", difference_value)
 
     if difference_value == 'higherFar':
-        filters[attr_name].append(('<', guessed_value-3))
+        filters[attr_name].append(('<', guessed_value))
     elif difference_value == 'higherClose':
         filters[attr_name].append(('<', guessed_value))
     elif difference_value == 'equal':
@@ -230,7 +234,7 @@ def process_numerical_attribute(attr_name, difference_value, guessed_value, filt
     elif difference_value == 'lowerClose':
         filters[attr_name].append(('>', guessed_value))
     elif difference_value == 'lowerFar':
-        filters[attr_name].append(('>', guessed_value+3))
+        filters[attr_name].append(('>', guessed_value))
 
 
 def apply_filters(players_df, filters):
@@ -241,20 +245,27 @@ def apply_filters(players_df, filters):
         include_values = filters[attr]
         exclude_values = filters.get(f'Exclude_{attr}', set())
 
-        if include_values:
-            filtered_df = filtered_df[filtered_df[attr].isin(include_values)]
+        print(include_values, exclude_values)
+
         if exclude_values:
             filtered_df = filtered_df[~filtered_df[attr].isin(exclude_values)]
+        # Then, include desired values
+        if include_values:
+            filtered_df = filtered_df[filtered_df[attr].isin(include_values)]
 
     # Apply numerical filters
-    for attr in ['Height', 'Age', 'Jersey']:
+    for attr in ['Age', 'Jersey', 'Height']:
+        print("attr:", attr)
         for op, value in filters[attr]:
+            print(attr, op, value)
             if op == '>':
-                filtered_df = filtered_df[filtered_df[attr] > value]
+                filtered_df = filtered_df[filtered_df[attr] >= value]
+
             elif op == '<':
-                filtered_df = filtered_df[filtered_df[attr] < value]
+                filtered_df = filtered_df[filtered_df[attr] <= value]
             elif op == '==':
                 filtered_df = filtered_df[filtered_df[attr] == value]
+            # print(f"Filtered {attr}:", filtered_df["Names"].tolist())
 
     return filtered_df
 
