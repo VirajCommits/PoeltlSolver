@@ -24,4 +24,3 @@ yarn-error.log*
 
 # Ignore the vent directory or file
 venv/
-
