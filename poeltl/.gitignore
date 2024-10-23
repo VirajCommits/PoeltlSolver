@@ -22,4 +22,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-/venv
+# Ignore the vent directory or file
+venv
+
