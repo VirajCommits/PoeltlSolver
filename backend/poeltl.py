@@ -79,151 +79,190 @@ else:
     players['Jersey'] = pd.to_numeric(players['Jersey'], errors='coerce')
 
 
+def calculate_age(birthdate_str):
+    """Calculate age from birthdate string in ISO format."""
+    birthdate = datetime.strptime(birthdate_str, "%Y-%m-%dT%H:%M:%S")
+    today = datetime.today()
+    age = today.year - birthdate.year - (
+        (today.month, today.day) < (birthdate.month, birthdate.day)
+    )
+    return age
+
+
+# Fetch data from the API when the app starts
+try:
+    response = requests.get(URL)
+    response.raise_for_status()
+except requests.RequestException as e:
+    print(f"Failed to fetch data: {e}")
+    players = pd.DataFrame()
+else:
+    data = response.json()
+    players = pd.DataFrame(data)
+    players['Age'] = players['BirthDate'].apply(calculate_age)
+    players['Conference'] = players['Team'].map(
+        lambda x: team_info.get(x, {}).get('Conference', 'Unknown')
+    )
+    players['Division'] = players['Team'].map(
+        lambda x: team_info.get(x, {}).get('Division', 'Unknown')
+    )
+    players['Name'] = players['FirstName'] + ' ' + players['LastName']
+    players['Height'] = pd.to_numeric(players['Height'], errors='coerce')
+    players['Age'] = pd.to_numeric(players['Age'], errors='coerce')
+    players['Jersey'] = pd.to_numeric(players['Jersey'], errors='coerce')
+    players['PlayerID'] = players['PlayerID']
+    players['TeamName'] = players['Team']  # Adjust if needed
+    players['Position'] = players['PositionCategory']  # Adjust if needed
+
+
 @app.route('/guess', methods=['POST'])
 def guess():
-    print("Hitting endpoint!")
+
     data = request.get_json()
+    guesses = data.get('guesses', [])
+    # print(guesses)
 
-    # Get the cumulative filters from the request, or initialize if not provided
-    cumulative_filters = data.get('cumulative_filters', None)
-    if cumulative_filters is None:
-        cumulative_filters = {
-            'Conference': set(),
-            'Division': set(),
-            'Team': set(),
-            'Position': set(),
-            'Height': [],
-            'Age': [],
-            'Jersey': []
-        }
-    else:
-        # Convert lists back to sets for 'Conference', 'Division', 'Team', 'Position'
-        for key in ['Conference', 'Division', 'Team', 'Position']:
-            cumulative_filters[key] = set(cumulative_filters.get(key, []))
-        # For 'Height', 'Age', 'Jersey', keep as lists
-        for key in ['Height', 'Age', 'Jersey']:
-            cumulative_filters[key] = cumulative_filters.get(key, [])
+    if not guesses:
+        return jsonify({'error': 'No guesses provided'}), 400
 
-    guess_name = data.get('guess')
-    feedback = data.get('feedback', {})
+    # Initialize cumulative filters
+    cumulative_filters = initialize_filters()
 
-    if not guess_name:
-        return jsonify({'error': 'Guess name is required'}), 400
+    # Process each guess to update filters
+    for guess_entry in guesses:
+        player = guess_entry.get('player')
+        difference = guess_entry.get('difference')
 
-    # Check if the player exists
-    if guess_name not in players['Name'].values:
-        return jsonify({'error': 'Player not found'}), 400
+        # print("player", player)
+        # print("difference", difference)
 
-    # Get the guessed player data
-    guess = players[players['Name'] == guess_name].iloc[0]
+        if not player or not difference:
+            continue  # Skip invalid entries
 
-    # Process the feedback to update cumulative_filters
-    conference_input = feedback.get('conference_input', 'n').strip().lower()
-    if conference_input == 'y':
-        cumulative_filters['Conference'].add(guess['Conference'])
-    else:
-        cumulative_filters['Conference'].add(f"not_{guess['Conference']}")
+        process_guess(player, difference, cumulative_filters)
 
-    division_input = feedback.get('division_input', 'n').strip().lower()
-    if division_input == 'y':
-        cumulative_filters['Division'].add(guess['Division'])
-    else:
-        cumulative_filters['Division'].add(f"not_{guess['Division']}")
+    # Apply filters to the players DataFrame
+    filtered_players = apply_filters(players, cumulative_filters)
 
-    team_input = feedback.get('team_input', 'n').strip().lower()
-    if team_input == 'y':
-        cumulative_filters['Team'].add(guess['Team'])
-    else:
-        cumulative_filters['Team'].add(f"not_{guess['Team']}")
-
-    position_hint = feedback.get('position_hint', '').strip()
-    if position_hint:
-        cumulative_filters['Position'].add(position_hint)
-
-    height_comparison = feedback.get('height_comparison', '').strip().lower()
-    if height_comparison in ["bigger", "smaller"]:
-        cumulative_filters['Height'].append(
-            (height_comparison, int(guess['Height'])))
-
-    age_comparison = feedback.get('age_comparison', '').strip().lower()
-    if age_comparison in ["older", "younger"]:
-        cumulative_filters['Age'].append((age_comparison, int(guess['Age'])))
-
-    jersey_comparison = feedback.get('jersey_comparison', '').strip().lower()
-    if jersey_comparison in ["bigger", "smaller"]:
-        cumulative_filters['Jersey'].append(
-            (jersey_comparison, int(guess['Jersey'])))
-
-    # Apply the cumulative filters to the players DataFrame
-    filtered_players = players.copy()
-
-    # Apply cumulative Conference filters
-    for conf in cumulative_filters['Conference']:
-        if conf.startswith("not_"):
-            filtered_players = filtered_players[filtered_players['Conference'] != conf.replace(
-                "not_", "")]
-        else:
-            filtered_players = filtered_players[filtered_players['Conference'] == conf]
-
-    # Apply cumulative Division filters
-    for div in cumulative_filters['Division']:
-        if div.startswith("not_"):
-            filtered_players = filtered_players[filtered_players['Division'] != div.replace(
-                "not_", "")]
-        else:
-            filtered_players = filtered_players[filtered_players['Division'] == div]
-
-    # Apply cumulative Team filters
-    for team in cumulative_filters['Team']:
-        if team.startswith("not_"):
-            filtered_players = filtered_players[filtered_players['Team'] != team.replace(
-                "not_", "")]
-        else:
-            filtered_players = filtered_players[filtered_players['Team'] == team]
-
-    # Apply Position filters
-    if cumulative_filters['Position']:
-        filtered_players = filtered_players[filtered_players['PositionCategory'].isin(
-            cumulative_filters['Position'])]
-
-    # Apply Height comparisons
-    for comp, value in cumulative_filters['Height']:
-        if comp == "bigger":
-            filtered_players = filtered_players[filtered_players['Height'] > value]
-        elif comp == "smaller":
-            filtered_players = filtered_players[filtered_players['Height'] < value]
-
-    # Apply Age comparisons
-    for comp, value in cumulative_filters['Age']:
-        if comp == "older":
-            filtered_players = filtered_players[filtered_players['Age'] > value]
-        elif comp == "younger":
-            filtered_players = filtered_players[filtered_players['Age'] < value]
-
-    # Apply Jersey comparisons
-    for comp, value in cumulative_filters['Jersey']:
-        if comp == "bigger":
-            filtered_players = filtered_players[filtered_players['Jersey'] > value]
-        elif comp == "smaller":
-            filtered_players = filtered_players[filtered_players['Jersey'] < value]
+    # Exclude previous guesses
+    filtered_players = exclude_previous_guesses(filtered_players, guesses)
 
     # Prepare the filtered players to return
-    filtered_players_json = filtered_players[['Name', 'Team', 'Conference', 'Division', 'PositionCategory', 'Height', 'Age', 'Jersey']].astype(
+    filtered_players_json = filtered_players[['Name', 'TeamName', 'Conference', 'Division', 'Position', 'Height', 'Age', 'Jersey']].astype(
         object).where(pd.notnull(filtered_players), None).to_dict(orient='records')
 
-    # Convert sets in cumulative_filters to lists for JSON serialization
-    cumulative_filters_serializable = {key: list(value) if isinstance(
-        value, set) else value for key, value in cumulative_filters.items()}
+    return jsonify({'filtered_players': filtered_players_json}), 200
 
-    # Return the updated cumulative_filters and filtered_players
-    response = {
-        'cumulative_filters': cumulative_filters_serializable,
-        'filtered_players': filtered_players_json
+
+def initialize_filters():
+    return {
+        'Conference': set(),
+        'Exclude_Conference': set(),
+        'Division': set(),
+        'Exclude_Division': set(),
+        'TeamName': set(),
+        'Exclude_TeamName': set(),
+        'Position': set(),
+        'Exclude_Position': set(),
+        'Height': [],
+        'Age': [],
+        'Jersey': []
     }
 
-    print("This is the response I am getting:", response)
 
-    return jsonify(response)
+def process_guess(player, difference, filters):
+    # Extract player attributes
+    guessed_player = {
+        'Conference': player.get('conference'),
+        'Division': player.get('division'),
+        'TeamName': player.get('teamname'),
+        'Position': player.get('position'),
+        'Height': player.get('height'),
+        'Age': player.get('age'),
+        'Jersey': int(player.get('number')) if player.get('number') else None
+    }
+
+    print(" ------------- ", difference)
+
+    # Process categorical attributes
+    process_categorical_attribute('Conference', difference.get(
+        'conference'), guessed_player['Conference'], filters)
+    process_categorical_attribute('Division', difference.get(
+        'division'), guessed_player['Division'], filters)
+    process_categorical_attribute('TeamName', difference.get(
+        'team'), guessed_player['TeamName'], filters)
+    process_categorical_attribute('Position', difference.get(
+        'position'), guessed_player['Position'], filters)
+
+    # Process numerical attributes
+    process_numerical_attribute('Height', difference.get(
+        'height'), guessed_player['Height'], filters)
+    process_numerical_attribute('Age', difference.get(
+        'age'), guessed_player['Age'], filters)
+    process_numerical_attribute('Jersey', difference.get(
+        'number'), guessed_player['Jersey'], filters)
+
+
+def process_categorical_attribute(attr_name, difference_value, guessed_value, filters):
+    if not guessed_value:
+        return
+
+    if difference_value == 'equal':
+        filters[attr_name].add(guessed_value)
+    # elif difference_value == 'far' or difference_value == "higherFar":
+    elif difference_value == 'far':
+        exclude_key = f'Exclude_{attr_name}'
+        print(exclude_key)
+        filters[exclude_key].add(guessed_value)
+
+
+def process_numerical_attribute(attr_name, difference_value, guessed_value, filters):
+    if guessed_value is None:
+        return
+    print(" ++++++++++", difference_value)
+
+    if difference_value == 'higherFar':
+        filters[attr_name].append(('<', guessed_value-3))
+    elif difference_value == 'higherClose':
+        filters[attr_name].append(('<', guessed_value))
+    elif difference_value == 'equal':
+        filters[attr_name].append(('==', guessed_value))
+    elif difference_value == 'lowerClose':
+        filters[attr_name].append(('>', guessed_value))
+    elif difference_value == 'lowerFar':
+        filters[attr_name].append(('>', guessed_value+3))
+
+
+def apply_filters(players_df, filters):
+    filtered_df = players_df.copy()
+
+    # Apply categorical filters
+    for attr in ['Conference', 'Division', 'TeamName', 'Position']:
+        include_values = filters[attr]
+        exclude_values = filters.get(f'Exclude_{attr}', set())
+
+        if include_values:
+            filtered_df = filtered_df[filtered_df[attr].isin(include_values)]
+        if exclude_values:
+            filtered_df = filtered_df[~filtered_df[attr].isin(exclude_values)]
+
+    # Apply numerical filters
+    for attr in ['Height', 'Age', 'Jersey']:
+        for op, value in filters[attr]:
+            if op == '>':
+                filtered_df = filtered_df[filtered_df[attr] > value]
+            elif op == '<':
+                filtered_df = filtered_df[filtered_df[attr] < value]
+            elif op == '==':
+                filtered_df = filtered_df[filtered_df[attr] == value]
+
+    return filtered_df
+
+
+def exclude_previous_guesses(players_df, guesses):
+    guessed_player_ids = [guess['player']['id']
+                          for guess in guesses if 'player' in guess and 'id' in guess['player']]
+    return players_df[~players_df['PlayerID'].isin(guessed_player_ids)]
 
 
 if __name__ == "__main__":
