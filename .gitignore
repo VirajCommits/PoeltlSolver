@@ -25,3 +25,6 @@ yarn-error.log*
 # Ignore the vent directory or file
 venv/
 
+config.py
+
+__pycache__/

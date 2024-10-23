@@ -4,11 +4,11 @@ import pandas as pd
 from datetime import datetime
 from flask_cors import CORS
 import json
+from config import API_KEY
 
 app = Flask(__name__)
 CORS(app)
 
-API_KEY = '9d9174b6f1d04b068b8514d6765fff0e'
 URL = f'https://api.sportsdata.io/v3/nba/scores/json/PlayersActiveBasic?key={API_KEY}'
 
 # Dictionary for mapping teams to conferences and divisions
