@@ -2,11 +2,14 @@ import React , {useState} from 'react'
 
 function PlayerGuesser() {
 
+
+
     const [suggestions, setSuggestions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
     const handleSearchPlayers = async () => {
+      console.log("HANDLING SEARCHING OF PLAYERS ")
         setLoading(true);
         setError(null);
 
@@ -40,7 +43,6 @@ function PlayerGuesser() {
                     },
                     body: JSON.stringify(currentPlayerStats),
                 });
-            console.log(response)
             
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
