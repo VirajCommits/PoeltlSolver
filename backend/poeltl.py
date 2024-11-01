@@ -7,11 +7,10 @@ import json
 import logging
 
 app = Flask(__name__)
-app.secret_key = "4547292e3346a2c96c5aee79ec27b8697870e80a171c26eb30b858fe542086b4"
 CORS(app, supports_credentials=True)  # Enable credentials
 
 
-API_KEY = '9d9174b6f1d04b068b8514d6765fff0e'
+API_KEY = ''
 URL = f'https://api.sportsdata.io/v3/nba/scores/json/PlayersActiveBasic?key={API_KEY}'
 
 # Dictionary for mapping teams to conferences and divisions
@@ -52,22 +51,16 @@ team_info = {
 @app.route('/sync', methods=['GET'])
 def get_external_cookies():
     try:
-        # Define the external API URL
         external_api_url = 'https://poeltl.nbpa.com/api/sync'
-
-        # Manually add the cookie string you retrieved from the browser
         cookie_value = (
             "connect.sid=s%3A9DP3crfBVJFUlGPkA3pqAPAkfSl2ibWz.f1IzJbkd9eEc8xVq9lKrNhQhHw%2FSJIrKeog%2FmFSvxS0"
         )
-
-        # Set up headers, including the manually set Cookie header
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
             'Accept': 'application/json',
             'Cookie': cookie_value  # Add the full cookie string here
         }
 
-        # Make the request with the complete cookie header
         response = requests.get(external_api_url, headers=headers)
 
         response.raise_for_status()
@@ -89,7 +82,6 @@ def calculate_age(birthdate_str):
     return age
 
 
-# Fetch data from the API when the app starts
 try:
     response = requests.get(URL)
     response.raise_for_status()
@@ -159,10 +151,7 @@ def guess():
     if not guesses:
         return jsonify({'error': 'No guesses provided'}), 400
 
-    # Initialize cumulative filters
     cumulative_filters = initialize_filters()
-
-    # Process each guess to update filters
     for guess_entry in guesses:
         player = guess_entry.get('player')
         difference = guess_entry.get('difference')
@@ -171,18 +160,12 @@ def guess():
             continue  # Skip invalid entries\
 
         process_guess(player, difference, cumulative_filters)
-
-    # Apply filters to the players DataFrame
     filtered_players = apply_filters(players, cumulative_filters)
 
-    # Exclude previous guesses
     filtered_players = exclude_previous_guesses(filtered_players, guesses)
 
-    # Prepare the filtered players to return
     filtered_players_json = filtered_players[['Name', 'TeamName', 'Conference', 'Division', 'Position', 'Height', 'Age', 'Jersey']].astype(
         object).where(pd.notnull(filtered_players), None).to_dict(orient='records')
-
-    # After processing guesses
 
     return jsonify({'filtered_players': filtered_players_json}), 200
 
@@ -204,7 +187,6 @@ def initialize_filters():
 
 
 def process_guess(player, difference, filters):
-    # Extract player attributes
     guessed_player = {
         'Conference': player.get('conference'),
         'Division': player.get('division'),
@@ -215,7 +197,6 @@ def process_guess(player, difference, filters):
         'Jersey': int(player.get('number')) if player.get('number') else None
     }
 
-    # Process categorical attributes
     process_categorical_attribute('Conference', difference.get(
         'conference'), guessed_player['Conference'], filters)
     process_categorical_attribute('Division', difference.get(
@@ -225,7 +206,6 @@ def process_guess(player, difference, filters):
     process_categorical_attribute('Position', difference.get(
         'position'), guessed_player['Position'], filters)
 
-    # Process numerical attributes
     process_numerical_attribute('Height', difference.get(
         'height'), guessed_player['Height'], filters)
     process_numerical_attribute('Age', difference.get(
@@ -265,14 +245,12 @@ def process_numerical_attribute(attr_name, difference_value, guessed_value, filt
 def apply_filters(players_df, filters):
     filtered_df = players_df.copy()
 
-    # Apply categorical filters
     for attr in ['Conference', 'Division', 'TeamName', 'Position']:
         include_values = filters[attr]
         exclude_values = filters.get(f'Exclude_{attr}', set())
 
         if exclude_values:
             filtered_df = filtered_df[~filtered_df[attr].isin(exclude_values)]
-        # Then, include desired values
         if include_values:
             filtered_df = filtered_df[filtered_df[attr].isin(include_values)]
 
