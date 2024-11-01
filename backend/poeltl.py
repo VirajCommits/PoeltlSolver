@@ -1,12 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 import requests
 import pandas as pd
 from datetime import datetime
 from flask_cors import CORS
 import json
+import logging
 
 app = Flask(__name__)
-CORS(app)
+app.secret_key = "4547292e3346a2c96c5aee79ec27b8697870e80a171c26eb30b858fe542086b4"
+CORS(app, supports_credentials=True)  # Enable credentials
+
 
 API_KEY = '9d9174b6f1d04b068b8514d6765fff0e'
 URL = f'https://api.sportsdata.io/v3/nba/scores/json/PlayersActiveBasic?key={API_KEY}'
@@ -46,8 +49,38 @@ team_info = {
 }
 
 
+@app.route('/sync', methods=['GET'])
+def get_external_cookies():
+    try:
+        # Define the external API URL
+        external_api_url = 'https://poeltl.nbpa.com/api/sync'
+
+        # Manually add the cookie string you retrieved from the browser
+        cookie_value = (
+            "connect.sid=s%3A9DP3crfBVJFUlGPkA3pqAPAkfSl2ibWz.f1IzJbkd9eEc8xVq9lKrNhQhHw%2FSJIrKeog%2FmFSvxS0"
+        )
+
+        # Set up headers, including the manually set Cookie header
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Cookie': cookie_value  # Add the full cookie string here
+        }
+
+        # Make the request with the complete cookie header
+        response = requests.get(external_api_url, headers=headers)
+
+        response.raise_for_status()
+
+        return jsonify(response.json()), response.status_code
+
+    except requests.RequestException as e:
+        print(f"Error fetching data from external API: {e}")
+        return jsonify({"error": "Failed to fetch data from external API"}), 500
+
+
 def calculate_age(birthdate_str):
-    """Calculate age from birthdate string in ISO format."""
+    """basically to calculate age from players birthdate"""
     birthdate = datetime.strptime(birthdate_str, "%Y-%m-%dT%H:%M:%S")
     today = datetime.today()
     age = today.year - birthdate.year - (
@@ -92,7 +125,6 @@ def calculate_age(birthdate_str):
     return age
 
 
-# Fetch data from the API when the app starts
 try:
     response = requests.get(URL)
     response.raise_for_status()
@@ -114,8 +146,8 @@ else:
     players['Age'] = pd.to_numeric(players['Age'], errors='coerce')
     players['Jersey'] = pd.to_numeric(players['Jersey'], errors='coerce')
     players['PlayerID'] = players['PlayerID']
-    players['TeamName'] = players['Team']  # Adjust if needed
-    players['Position'] = players['PositionCategory']  # Adjust if needed
+    players['TeamName'] = players['Team']
+    players['Position'] = players['PositionCategory']
 
 
 @app.route('/guess', methods=['POST'])
@@ -123,7 +155,6 @@ def guess():
 
     data = request.get_json()
     guesses = data.get('guesses', [])
-    # print(guesses)
 
     if not guesses:
         return jsonify({'error': 'No guesses provided'}), 400
@@ -135,9 +166,6 @@ def guess():
     for guess_entry in guesses:
         player = guess_entry.get('player')
         difference = guess_entry.get('difference')
-
-        # print("player", player)
-        # print("difference", difference)
 
         if not player or not difference:
             continue  # Skip invalid entries\
@@ -155,7 +183,6 @@ def guess():
         object).where(pd.notnull(filtered_players), None).to_dict(orient='records')
 
     # After processing guesses
-    print("Cumulative Filters:", cumulative_filters)
 
     return jsonify({'filtered_players': filtered_players_json}), 200
 
@@ -187,8 +214,6 @@ def process_guess(player, difference, filters):
         'Age': player.get('age'),
         'Jersey': int(player.get('number')) if player.get('number') else None
     }
-
-    # print(" ------------- ", difference)
 
     # Process categorical attributes
     process_categorical_attribute('Conference', difference.get(
@@ -245,8 +270,6 @@ def apply_filters(players_df, filters):
         include_values = filters[attr]
         exclude_values = filters.get(f'Exclude_{attr}', set())
 
-        print(include_values, exclude_values)
-
         if exclude_values:
             filtered_df = filtered_df[~filtered_df[attr].isin(exclude_values)]
         # Then, include desired values
@@ -255,9 +278,7 @@ def apply_filters(players_df, filters):
 
     # Apply numerical filters
     for attr in ['Age', 'Jersey', 'Height']:
-        print("attr:", attr)
         for op, value in filters[attr]:
-            print(attr, op, value)
             if op == '>':
                 filtered_df = filtered_df[filtered_df[attr] >= value]
 
@@ -265,7 +286,6 @@ def apply_filters(players_df, filters):
                 filtered_df = filtered_df[filtered_df[attr] <= value]
             elif op == '==':
                 filtered_df = filtered_df[filtered_df[attr] == value]
-            # print(f"Filtered {attr}:", filtered_df["Names"].tolist())
 
     return filtered_df
 
